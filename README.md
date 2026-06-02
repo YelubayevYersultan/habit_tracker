@@ -76,7 +76,7 @@ Telegram Bot
 ### 1. Clone project
 
 ```bash
-git clone <repo_url>
+git clone https://github.com/YelubayevYersultan/habit_tracker.git
 cd habit_tracker
 ```
 
