@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # 1. База данных PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: habit_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # 2. Брокер очередей Redis
+  redis:
+    image: redis:7-alpine
+    container_name: habit_redis
+    ports:
+      - "6379:6379"
+
+  # 3. Главное веб-приложение Django (API)
+  web:
+    build: .
+    container_name: habit_web
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+    depends_on:
+      - db
+      - redis
+
+  # 4. Фоновый исполнитель задач Celery Worker
+  celery_worker:
+    build: .
+    container_name: habit_worker
+    command: python -m celery -A config worker --loglevel=info -P solo
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+    depends_on:
+      - redis
+      - db
+
+  # 5. Фоновый планировщик задач Celery Beat (Будильник)
+  celery_beat:
+    build: .
+    container_name: habit_beat
+    command: python -m celery -A config beat --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+    depends_on:
+      - redis
+      - db
+
+  # 6. Наш новый Телеграм-бот на aiogram (ТЕПЕРЬ НА СВОЕМ МЕСТЕ 🚀)
+  telegram_bot:
+    build: .
+    container_name: habit_telegram_bot
+    command: python bot/main.py
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TEST_USER_JWT_TOKEN=${TEST_USER_JWT_TOKEN}
+    depends_on:
+      - web
+
+# Именованные тома вынесены отдельно в самый низ, как и должно быть
+volumes:
+  postgres_data:
